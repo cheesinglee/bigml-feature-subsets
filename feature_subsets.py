@@ -1,3 +1,5 @@
+#! /usr/bin/python2
+
 # -*- coding: utf-8 -*-
 """
 Created on Thu Feb 20 14:45:41 2014
@@ -6,6 +8,7 @@ Created on Thu Feb 20 14:45:41 2014
 """
 
 import csv
+import argparse
 from pprint import pprint
 from copy import copy
 from os.path import join,split,splitext
@@ -14,11 +17,7 @@ from sklearn.cross_validation import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 from bigml.api import BigML
 
-
-# fill in your BigML username and api key here
-USERNAME=''
-API_KEY=''
-api = BigML(USERNAME,API_KEY)
+# default values
 
 # number of cross-validation folds for evaluation
 N_FOLDS = 5
@@ -86,7 +85,7 @@ def expand_state(parent):
         children.append(child)
     return children
 
-def evaluate(input_fields,cv_datasets):
+def evaluate(input_fields,cv_datasets,api,penalty):
     """ do cross-validation using the given feature subset """
     args = {'input_fields':input_fields}
 
@@ -101,7 +100,7 @@ def evaluate(input_fields,cv_datasets):
         e = api.check_resource(e,api.get_evaluation)
         accuracy_scores.append(e['object']['result']['model']['accuracy'])
 
-    return (sum(accuracy_scores)/len(accuracy_scores) - PENALTY*len(input_fields))
+    return (sum(accuracy_scores)/len(accuracy_scores) - penalty*len(input_fields))
 
 def find_max_state(states):
     maxval = -1
@@ -112,62 +111,78 @@ def find_max_state(states):
             maxval = f
     return maxstate,maxval
 
-
-sourcefile = 'data/crx.csv'
-
-print 'generate cross validation splits'
-cv_files = generate_cross_validation(sourcefile,N_FOLDS)
-
-cv_datasets = []
-for (train_file,test_file) in cv_files:
-    train_source = api.create_source(train_file)
-    test_source = api.create_source(test_file)
-
-    train_dataset = api.create_dataset(train_source)
-    test_dataset = api.create_dataset(test_source)
-    cv_datasets.append((train_dataset,test_dataset))
-
-
-dataset_res = api.check_resource(cv_datasets[0][0],api.get_dataset)
-dataset_obj = dataset_res['object']
-
-# initial feature set
-field_ids = dataset_obj['fields'].keys()
-field_ids.remove(dataset_obj['objective_field']['id'])
-initial_state = [False for id in field_ids]
-
-# do best-first search
-done = False
-open_list = [(initial_state,0)]
-closed_list = []
-best_accuracy = -1
-best_unchanged_count = 0
-while not done:
-    (v,fv) = find_max_state(open_list)
-    print 'Max state is: %s\n Accuracy = %f' % (v,fv)
-    closed_list.append((v,fv))
-    open_list.remove((v,fv))
-    if (fv - EPSILON) > best_accuracy:
-        best_accuracy = fv
-        best_unchanged_count = 0
-        print 'new best state'
+def main(args):
+    print('initialize BigML API')
+    if args.username and args.apikey:
+        api = BigML(args.username,args.apikey)
     else:
-        best_unchanged_count += 1
+        api = BigML()
 
-    children = expand_state(v)
-    for c in children:
-        if (c not in [pair[0] for pair in open_list]
-        and c not in [pair[0] for pair in closed_list]):
-            input_fields = [id for (i,id) in enumerate(field_ids) if c[i]]
-            print 'Evaluating %s' % input_fields
-            val = evaluate(input_fields,cv_datasets)
-            open_list.append((c,val))
+    print('generate cross validation splits')
+    cv_files = generate_cross_validation(args.filename,args.nfolds)
 
-    if best_unchanged_count >= K:
-        done = True
+    cv_datasets = []
+    for (train_file,test_file) in cv_files:
+        train_source = api.create_source(train_file)
+        test_source = api.create_source(test_file)
 
-print 'CLOSED LIST:'
-pprint(closed_list)
+        train_dataset = api.create_dataset(train_source)
+        test_dataset = api.create_dataset(test_source)
+        cv_datasets.append((train_dataset,test_dataset))
 
-print 'OPEN LIST:'
-pprint(open_list)
+
+    # wait for dataset creation to finish so we can find out the number of features
+    dataset_res = api.check_resource(cv_datasets[0][0],api.get_dataset)
+    dataset_obj = dataset_res['object']
+
+    # initial feature set
+    field_ids = dataset_obj['fields'].keys()
+    field_ids.remove(dataset_obj['objective_field']['id'])
+    initial_state = [False for id in field_ids]
+
+    # do best-first search
+    done = False
+    open_list = [(initial_state,0)]
+    closed_list = []
+    best_accuracy = -1
+    best_unchanged_count = 0
+    while not done:
+        (v,fv) = find_max_state(open_list)
+        v_ids = [field_ids[i] for (i,val) in enumerate(v) if val]
+        print('Max state is: %s\n Accuracy = %f' % (v_ids,fv))
+        closed_list.append((v,fv))
+        open_list.remove((v,fv))
+        if (fv - EPSILON) > best_accuracy:
+            best_state = v
+            best_accuracy = fv
+            best_unchanged_count = 0
+            print('new best state')
+        else:
+            best_unchanged_count += 1
+
+        children = expand_state(v)
+        for c in children:
+            if (c not in [pair[0] for pair in open_list]
+            and c not in [pair[0] for pair in closed_list]):
+                input_fields = [id for (i,id) in enumerate(field_ids) if c[i]]
+                print('Evaluating %s' % input_fields)
+                val = evaluate(input_fields,cv_datasets,api,args.penalty)
+                open_list.append((c,val))
+
+        if best_unchanged_count >= args.staleness:
+            done = True
+
+    best_features = [field_ids[i] for (i,val) in enumerate(best_state) if val]
+    print('The best feature subset is: %s \n Accuracy = %d%%' % (best_features,best_accuracy*100))
+    print('Evaluated %d/%d feature subsets' % ((len(open_list) + len(closed_list)),2**len(field_ids)))
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('filename',help='path to CSV file')
+    parser.add_argument('-u','--username',type=str,help='BigML username')
+    parser.add_argument('-a','--apikey',type=str,help='BigML API key')
+    parser.add_argument('-n','--nfolds',type=int,help='Number of cross-validation folds [default=%d]' % N_FOLDS,default=N_FOLDS)
+    parser.add_argument('-k','--staleness',type=int,default=K,help='Staleness parameter for best-first search [default=%d]' % K)
+    parser.add_argument('-p','--penalty',type=float,default=PENALTY,help='Per-feature penalty factor [default=%0.3f]' % PENALTY)
+    args = parser.parse_args()
+    main(args)
