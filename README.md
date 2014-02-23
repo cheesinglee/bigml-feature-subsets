@@ -19,6 +19,10 @@
                             Staleness parameter for best-first search [default=5]
       -p PENALTY, --penalty PENALTY
                             Per-feature penalty factor [default=0.001]
+                            
+Example:
+
+    feature_subsets.py --username="my_bigml_username" --apikey="my_bigml_key" data/crx.csv
 
 ## Dependencies
 
