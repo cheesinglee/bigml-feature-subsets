@@ -173,7 +173,7 @@ def main(args):
             done = True
 
     best_features = [field_ids[i] for (i,val) in enumerate(best_state) if val]
-    print('The best feature subset is: %s \n Accuracy = %d%%' % (best_features,best_accuracy*100))
+    print('The best feature subset is: %s \n Accuracy = %0.2f%%' % (best_features,best_accuracy*100))
     print('Evaluated %d/%d feature subsets' % ((len(open_list) + len(closed_list)),2**len(field_ids)))
 
 if __name__ == '__main__':
