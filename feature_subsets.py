@@ -124,10 +124,11 @@ def main(args):
     cv_datasets = []
     for (train_file,test_file) in cv_files:
         train_source = api.create_source(train_file)
-        test_source = api.create_source(test_file)
-
         train_dataset = api.create_dataset(train_source)
+
+        test_source = api.create_source(test_file)
         test_dataset = api.create_dataset(test_source)
+
         cv_datasets.append((train_dataset,test_dataset))
 
 
