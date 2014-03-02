@@ -9,7 +9,6 @@ Created on Thu Feb 20 14:45:41 2014
 
 import csv
 import argparse
-from pprint import pprint
 from copy import copy
 from os.path import join,split,splitext
 
@@ -85,20 +84,21 @@ def expand_state(parent):
         children.append(child)
     return children
 
-def evaluate(input_fields,cv_datasets,api,penalty):
+def evaluate(input_fields,cv_datasets,api,penalty,sequential):
     """ do cross-validation using the given feature subset """
     args = {'input_fields':input_fields}
 
     models = []
     for (train,test) in cv_datasets:
         m = api.create_model(train,args)
-        models.append(m)
+        if (not sequential) or (api.ok(m)):
+            models.append(m)
 
     accuracy_scores = []
     for (i,(train,test)) in enumerate(cv_datasets):
         e = api.create_evaluation(models[i],test)
-        e = api.check_resource(e,api.get_evaluation)
-        accuracy_scores.append(e['object']['result']['model']['accuracy'])
+        if api.ok(e):
+            accuracy_scores.append(e['object']['result']['model']['accuracy'])
 
     return (sum(accuracy_scores)/len(accuracy_scores) - penalty*len(input_fields))
 
@@ -166,7 +166,8 @@ def main(args):
             and c not in [pair[0] for pair in closed_list]):
                 input_fields = [id for (i,id) in enumerate(field_ids) if c[i]]
                 print('Evaluating %s' % input_fields)
-                val = evaluate(input_fields,cv_datasets,api,args.penalty)
+                val = evaluate(input_fields,cv_datasets,api,args.penalty,
+                               args.sequential)
                 open_list.append((c,val))
 
         if best_unchanged_count >= args.staleness:
@@ -181,8 +182,13 @@ if __name__ == '__main__':
     parser.add_argument('filename',help='path to CSV file')
     parser.add_argument('-u','--username',type=str,help='BigML username')
     parser.add_argument('-a','--apikey',type=str,help='BigML API key')
-    parser.add_argument('-n','--nfolds',type=int,help='Number of cross-validation folds [default=%d]' % N_FOLDS,default=N_FOLDS)
-    parser.add_argument('-k','--staleness',type=int,default=K,help='Staleness parameter for best-first search [default=%d]' % K)
-    parser.add_argument('-p','--penalty',type=float,default=PENALTY,help='Per-feature penalty factor [default=%0.3f]' % PENALTY)
+    parser.add_argument('-n','--nfolds',type=int,
+                        help='Number of cross-validation folds [default=%d]' % N_FOLDS,default=N_FOLDS)
+    parser.add_argument('-k','--staleness',type=int,default=K,
+                        help='Staleness parameter for best-first search [default=%d]' % K)
+    parser.add_argument('-p','--penalty',type=float,default=PENALTY,
+                        help='Per-feature penalty factor [default=%0.3f]' % PENALTY)
+    parser.add_argument('-s','--sequential',type=bool,default=False,
+                        help='Perform model building sequentially [default=False]')
     args = parser.parse_args()
     main(args)
