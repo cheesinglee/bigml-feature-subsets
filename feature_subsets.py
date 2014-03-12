@@ -96,13 +96,23 @@ def evaluate(cv_datasets,params,api,penalty,sequential):
         if (not sequential) or (api.ok(m)):
             models.append(m)
 
-    accuracy_scores = []
+    scores = []
+    n_fields = len(params['input_fields'])
+    
+    # don't pass input_fields param to evaluations
+    del(params['input_fields'])
+    
     for (i,(train,test)) in enumerate(cv_datasets):
         e = api.create_evaluation(models[i],test,params)
         if api.ok(e):
-            accuracy_scores.append(e['object']['result']['model']['accuracy'])
+            model_results = e['object']['result']['model']
+            # score using accuracy or r-squared depending on task type
+            try:
+                scores.append(model_results['accuracy'])
+            except KeyError:
+                scores.append(model_results['r_squared'])
 
-    return (sum(accuracy_scores)/len(accuracy_scores) - penalty*len(input_fields))
+    return (sum(scores)/len(scores) - penalty*n_fields)
 
 def find_max_state(states):
     maxval = -1
@@ -128,11 +138,21 @@ def main(args):
     if args.objective_field >= 0:
         params['objective_field'] = {'id':'%06x' % args.objective_field} 
     for (train_file,test_file) in cv_files:
-        train_source = api.create_source(train_file,params)
-        train_dataset = api.create_dataset(train_source,params)
-        
-        test_source = api.create_source(test_file,params)       
-        test_dataset = api.create_dataset(test_source,params)
+        if args.sequential:
+            # wait for source before creating dataset
+            train_source = api.create_source(train_file,params)
+            train_dataset = api.create_dataset(train_source,params)
+            
+            if api.ok(train_dataset):
+                test_source = api.create_source(test_file,params)       
+                test_dataset = api.create_dataset(test_source,params)
+        else:
+            # upload sources in parallel and create datasets in parallel
+            train_source = api.create_source(train_file,params)
+            test_source = api.create_source(test_file,params)    
+            
+            train_dataset = api.create_dataset(train_source,params)
+            test_dataset = api.create_dataset(test_source,params)
 
         cv_datasets.append((train_dataset,test_dataset))
         
