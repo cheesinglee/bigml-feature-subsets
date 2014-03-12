@@ -34,7 +34,7 @@ Example:
     
 ### Cleanup:
 
-For your convenience, BigML sources, datasets, models, and evaluation are tagged by default with "Feature selection" this makes them easy to locate through the BigML dashboard. To quickly delete all the created resources, you can use [bigmler](http://bigmler.readthedocs.org/en/latest/):
+For your convenience, BigML sources, datasets, models, and evaluation are tagged by default with "Feature selection". This makes them easy to locate through the BigML dashboard. To quickly delete all the created resources, you can use [bigmler](http://bigmler.readthedocs.org/en/latest/):
 
     bigmler --delete --all-tag "Feature selection"
 
