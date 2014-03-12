@@ -9,7 +9,6 @@ Created on Thu Feb 20 14:45:41 2014
 
 import csv
 import argparse
-from pprint import pprint
 from copy import copy
 from os.path import join,split,splitext
 
@@ -88,19 +87,20 @@ def expand_state(parent):
         children.append(child)
     return children
 
-def evaluate(cv_datasets,params,api,penalty):
+def evaluate(cv_datasets,params,api,penalty,sequential):
     """ do cross-validation using the given feature subset """
 
     models = []
     for (train,test) in cv_datasets:
         m = api.create_model(train,params)
-        models.append(m)
+        if (not sequential) or (api.ok(m)):
+            models.append(m)
 
     accuracy_scores = []
     for (i,(train,test)) in enumerate(cv_datasets):
-        e = api.create_evaluation(models[i],test)
-        e = api.check_resource(e,api.get_evaluation)
-        accuracy_scores.append(e['object']['result']['model']['accuracy'])
+        e = api.create_evaluation(models[i],test,params)
+        if api.ok(e):
+            accuracy_scores.append(e['object']['result']['model']['accuracy'])
 
     return (sum(accuracy_scores)/len(accuracy_scores) - penalty*len(input_fields))
 
@@ -133,7 +133,7 @@ def main(args):
         
         test_source = api.create_source(test_file,params)       
         test_dataset = api.create_dataset(test_source,params)
-        
+
         cv_datasets.append((train_dataset,test_dataset))
         
     # don't pass objective field to model
@@ -176,14 +176,15 @@ def main(args):
                 input_fields = [id for (i,id) in enumerate(field_ids) if c[i]]
                 print('Evaluating %s' % input_fields)
                 params['input_fields'] = input_fields
-                val = evaluate(cv_datasets,params,api,args.penalty)
+                val = evaluate(cv_datasets,params,api,args.penalty,args.sequential)
+
                 open_list.append((c,val))
 
         if best_unchanged_count >= args.staleness:
             done = True
 
     best_features = [field_ids[i] for (i,val) in enumerate(best_state) if val]
-    print('The best feature subset is: %s \n Accuracy = %d%%' % (best_features,best_accuracy*100))
+    print('The best feature subset is: %s \n Accuracy = %0.2f%%' % (best_features,best_accuracy*100))
     print('Evaluated %d/%d feature subsets' % ((len(open_list) + len(closed_list)),2**len(field_ids)))
 
 if __name__ == '__main__':
@@ -191,10 +192,17 @@ if __name__ == '__main__':
     parser.add_argument('filename',help='path to CSV file')
     parser.add_argument('-u','--username',type=str,help='BigML username')
     parser.add_argument('-a','--apikey',type=str,help='BigML API key')
-    parser.add_argument('-n','--nfolds',type=int,help='Number of cross-validation folds [default=%d]' % N_FOLDS,default=N_FOLDS)
-    parser.add_argument('-k','--staleness',type=int,default=K,help='Staleness parameter for best-first search [default=%d]' % K)
-    parser.add_argument('-p','--penalty',type=float,default=PENALTY,help='Per-feature penalty factor [default=%0.3f]' % PENALTY)
-    parser.add_argument('-o','--objective_field',type=int,default=-1,help='Index of objective field [default=last]')
-    parser.add_argument('-t','--tag',type=str,default=DEFAULT_TAG,help='Tag for created BigML resources [default=%s]' % DEFAULT_TAG)
+    parser.add_argument('-o','--objective_field',type=int,default=-1,
+                        help='Index of objective field [default=last]')
+    parser.add_argument('-t','--tag',type=str,default=DEFAULT_TAG,
+                        help='Tag for created BigML resources [default=%s]' % DEFAULT_TAG)
+    parser.add_argument('-n','--nfolds',type=int,
+                        help='Number of cross-validation folds [default=%d]' % N_FOLDS,default=N_FOLDS)
+    parser.add_argument('-k','--staleness',type=int,default=K,
+                        help='Staleness parameter for best-first search [default=%d]' % K)
+    parser.add_argument('-p','--penalty',type=float,default=PENALTY,
+                        help='Per-feature penalty factor [default=%0.3f]' % PENALTY)
+    parser.add_argument('-s','--sequential',type=bool,default=False,
+                        help='Perform model building sequentially [default=False]')
     args = parser.parse_args()
     main(args)
