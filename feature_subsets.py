@@ -31,6 +31,9 @@ EPSILON = 0.001
 # per feature score penalty
 PENALTY = 0.001
 
+# tag created bigml resources with this string
+DEFAULT_TAG='Feature selection'
+
 def generate_cross_validation(filename,n_folds):
     """
     use sklearn kfolds class to create kfold cross validation data sources
@@ -85,13 +88,12 @@ def expand_state(parent):
         children.append(child)
     return children
 
-def evaluate(input_fields,cv_datasets,api,penalty):
+def evaluate(cv_datasets,params,api,penalty):
     """ do cross-validation using the given feature subset """
-    args = {'input_fields':input_fields}
 
     models = []
     for (train,test) in cv_datasets:
-        m = api.create_model(train,args)
+        m = api.create_model(train,params)
         models.append(m)
 
     accuracy_scores = []
@@ -122,13 +124,20 @@ def main(args):
     cv_files = generate_cross_validation(args.filename,args.nfolds)
 
     cv_datasets = []
+    params = {'tags':[args.tag]}
+    if args.objective_field >= 0:
+        params['objective_field'] = {'id':'%06x' % args.objective_field} 
     for (train_file,test_file) in cv_files:
-        train_source = api.create_source(train_file)
-        test_source = api.create_source(test_file)
-
-        train_dataset = api.create_dataset(train_source)
-        test_dataset = api.create_dataset(test_source)
+        train_source = api.create_source(train_file,params)
+        train_dataset = api.create_dataset(train_source,params)
+        
+        test_source = api.create_source(test_file,params)       
+        test_dataset = api.create_dataset(test_source,params)
+        
         cv_datasets.append((train_dataset,test_dataset))
+        
+    # don't pass objective field to model
+    del(params['objective_field'])
 
 
     # wait for dataset creation to finish so we can find out the number of features
@@ -166,7 +175,8 @@ def main(args):
             and c not in [pair[0] for pair in closed_list]):
                 input_fields = [id for (i,id) in enumerate(field_ids) if c[i]]
                 print('Evaluating %s' % input_fields)
-                val = evaluate(input_fields,cv_datasets,api,args.penalty)
+                params['input_fields'] = input_fields
+                val = evaluate(cv_datasets,params,api,args.penalty)
                 open_list.append((c,val))
 
         if best_unchanged_count >= args.staleness:
@@ -184,5 +194,7 @@ if __name__ == '__main__':
     parser.add_argument('-n','--nfolds',type=int,help='Number of cross-validation folds [default=%d]' % N_FOLDS,default=N_FOLDS)
     parser.add_argument('-k','--staleness',type=int,default=K,help='Staleness parameter for best-first search [default=%d]' % K)
     parser.add_argument('-p','--penalty',type=float,default=PENALTY,help='Per-feature penalty factor [default=%0.3f]' % PENALTY)
+    parser.add_argument('-o','--objective_field',type=int,default=-1,help='Index of objective field [default=last]')
+    parser.add_argument('-t','--tag',type=str,default=DEFAULT_TAG,help='Tag for created BigML resources [default=%s]' % DEFAULT_TAG)
     args = parser.parse_args()
     main(args)
